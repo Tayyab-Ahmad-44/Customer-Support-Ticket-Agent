@@ -1,0 +1,8 @@
+timestamp,subject,description,category,review_attempts,issues,draft_response
+2025-08-04 09:15:32,Payment Failure,Customer unable to complete payment,Billing,2,Card declined by bank,Advise customer to try another card or contact their bank
+2025-08-04 10:02:11,Login Issue,User can't log in despite correct credentials,Technical,1,Session timeout or stale cookies,Clear browser cache and try again
+2025-08-04 11:45:27,Data Sync Error,User data not updating across devices,Technical,3,Delayed background jobs,Inform that sync will complete in next 10 minutes
+2025-08-04 12:30:00,Order Not Received,Customer didn't receive their order,Security,1,Third-party courier delay,Apologize and offer delivery estimate
+2025-08-04 13:10:54,App Crash,Mobile app crashes after update,Technical,2,Incompatible OS version,Recommend app reinstallation or OS upgrade
+2025-08-04 14:20:43,Feature Request,Customer requesting a new reporting tool,General,0,Not an issue,Log request for product team
+2025-08-04 15:05:18,Wrong Invoice,Invoice contains incorrect billing address,Billing,2,Old address not updated,Send corrected invoice and update records

@@ -6,6 +6,7 @@ from core.logging import configure_logging
 from routers.home import router as home_router
 from routers.query import router as query_router
 from routers.store_pdf_in_db import router as store_pdf_router
+from routers.get_escalation_logs import router as get_escalation_logs_router
 
 
 #Configure logging
@@ -23,5 +24,6 @@ setup_cors(application)
 
 
 application.include_router(home_router)
-application.include_router(store_pdf_router)
 application.include_router(query_router)
+application.include_router(store_pdf_router)
+application.include_router(get_escalation_logs_router)

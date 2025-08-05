@@ -1,6 +1,9 @@
 
+import os
+import csv
 import logging
 from typing import Dict, Any
+from datetime import datetime
 
 from langgraph.graph import StateGraph, END
 
@@ -10,9 +13,27 @@ from services.pinecone_service import pinecone_service
 from schemas.dataclasses.langgraph_state import LanggraphState
 
 
+
 class LanggraphService:
     def __init__(self):
         self.graph = self._create_workflow()
+        self.escalation_file = "escalation.csv"
+        self._ensure_escalation_file_exists()
+
+
+
+
+
+    def _ensure_escalation_file_exists(self):
+        """Ensure the escalation CSV file exists with proper headers."""
+        if not os.path.exists(self.escalation_file):
+            with open(self.escalation_file, 'w', newline='', encoding='utf-8') as file:
+                writer = csv.writer(file)
+                writer.writerow([
+                    'timestamp', 'subject', 'description', 'category', 
+                    'review_attempts', 'issues', 'draft_response'
+                ])
+
 
 
 
@@ -27,27 +48,28 @@ class LanggraphService:
         workflow.add_node("retrieve", self._retrieve_documents)
         workflow.add_node("draft", self._draft_response)
         workflow.add_node("review", self._review_response)
-        workflow.add_node("increment", self._increment_attempts)
         workflow.add_node("refine", self._refine_context)
+        workflow.add_node("escalate", self._escalate_ticket)
         workflow.add_node("finalize", self._finalize_response)
 
         # Add edges
         workflow.add_edge("classify", "retrieve")
         workflow.add_edge("retrieve", "draft")
         workflow.add_edge("draft", "review")
-        workflow.add_edge("review", "increment")
 
-        # Conditional edges
+        # Conditional edges from review
         workflow.add_conditional_edges(
-            "increment",
-            self._should_continue_review,
+            "review",
+            self._determine_next_step,
             {
                 "refine": "refine",
+                "escalate": "escalate",
                 "finalize": "finalize"
             }
         )
 
         workflow.add_edge("refine", "draft")
+        workflow.add_edge("escalate", END)
         workflow.add_edge("finalize", END)
 
         # Set entry point
@@ -70,13 +92,22 @@ class LanggraphService:
                 retrieved_docs=[],
                 draft_response="",
                 review_result={},
+                escalated=False,
                 review_attempts=0,
                 final_response=""
             )
-            
+
             # Run the workflow
             final_state = await self.graph.ainvoke(initial_state)
-            return {"status": "success", "message": final_state['final_response']}
+            
+            # Check if ticket was escalated
+            if final_state.get('escalated', False):
+                return {
+                    "status": "success",
+                    "message": "This ticket has been escalated to human support due to complexity or policy concerns."
+                }
+            else:
+                return {"status": "success", "message": final_state['final_response']}
             
         except Exception as e:
             logging.error(f"Workflow execution error: {e}")
@@ -109,10 +140,8 @@ class LanggraphService:
                 state["category"] = "general"
                 return state
             
-
             ticket_classification = llm_response.get("message", "")
             state["category"] = ticket_classification.category
-
 
             logging.info(f"Ticket classified as: {state['category']} with reasoning: {ticket_classification.reasoning}")
             return state
@@ -133,15 +162,12 @@ class LanggraphService:
         try:
             # Create search query
             query_text = f"{state['subject']} {state['description']}"
-
             
             # Get embedding for the query
             query_embedding = await openai_service.embed_query(query_text)
             
-            
             # Store the query embedding for later use in refinement
             state["query_embedding"] = query_embedding
-
 
             # Search in the relevant namespace
             namespace = state["category"]
@@ -155,10 +181,8 @@ class LanggraphService:
                 state["retrieved_docs"] = []
                 return state
             
-
             retrieved_docs = search_response["data"]
             state["retrieved_docs"] = retrieved_docs
-
 
             logging.info(f"Retrieved {len(retrieved_docs)} documents from {namespace} namespace")
             return state
@@ -175,7 +199,6 @@ class LanggraphService:
     @staticmethod
     async def _draft_response(state: LanggraphState) -> LanggraphState:
         """Draft an initial response using retrieved context."""
-
         
         # Prepare context from retrieved documents
         context = ""
@@ -194,10 +217,8 @@ class LanggraphService:
                 state["draft_response"] = "I apologize, but I'm unable to process your request at this time. Please contact our support team directly."
                 return state
 
-
             draft_response = llm_response.get("message", {})
             state["draft_response"] = draft_response
-
 
             logging.info("Draft response generated successfully")
             return state
@@ -215,6 +236,9 @@ class LanggraphService:
     async def _review_response(state: LanggraphState) -> LanggraphState:
         """Review the draft response against company policies."""
         
+        # Increment review attempts at the start of review
+        state["review_attempts"] = state.get("review_attempts", 0) + 1
+        
         try:
             llm_response = await openai_service.draft_reviewer(
                 category=state["category"],
@@ -222,7 +246,6 @@ class LanggraphService:
                 description=state["description"],
                 draft_response=state["draft_response"]
             )
-
 
             if llm_response['status'] == 'error':
                 logging.error(f"Review error: {llm_response['message']}")
@@ -233,7 +256,6 @@ class LanggraphService:
                 }
                 return state
 
-
             review_result = llm_response.get("message", {})
             state["review_result"] = {
                 "approved": review_result.approved,
@@ -241,8 +263,7 @@ class LanggraphService:
                 "refinement_needed": review_result.refinement_needed
             }
 
-
-            logging.info(f"Review completed - Approved: {review_result.approved}")
+            logging.info(f"Review completed - Approved: {review_result.approved}, Attempt: {state['review_attempts']}")
             return state
 
         except Exception as e:
@@ -263,13 +284,11 @@ class LanggraphService:
     async def _refine_context(state: LanggraphState) -> LanggraphState:
         """Refine the context based on review feedback."""
         
-        
         try:
             if state['review_attempts'] == 1:
                 top_k = 10
             else:
                 top_k = 15
-
 
             search_response = await pinecone_service.search(
                 query_vector=state["query_embedding"],
@@ -280,7 +299,6 @@ class LanggraphService:
             if search_response["status"] == "error":
                 logging.error(f"Search error: {search_response['message']}")
                 return state
-
 
             state['retrieved_docs'] = search_response["data"]
 
@@ -295,30 +313,59 @@ class LanggraphService:
 
 
 
+    def _escalate_ticket(self, state: LanggraphState) -> LanggraphState:
+        """Escalate the ticket by storing it in escalation.csv file."""
+        
+        try:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Prepare escalation data
+            escalation_data = [
+                timestamp,
+                state.get("subject", ""),
+                state.get("description", ""),
+                state.get("category", ""),
+                state.get("review_attempts", 0),
+                "; ".join(state.get("review_result", {}).get("issues", [])),
+                state.get("draft_response", "")
+            ]
+            
+            # Write to CSV file
+            with open(self.escalation_file, 'a', newline='', encoding='utf-8') as file:
+                writer = csv.writer(file)
+                writer.writerow(escalation_data)
+            
+            state["escalated"] = True
+            state["final_response"] = "This ticket has been escalated to human support for further review."
+            
+            logging.info(f"Ticket escalated after {state['review_attempts']} attempts")
+            return state
+            
+        except Exception as e:
+            logging.error(f"Escalation error: {e}")
+            # If escalation fails, provide a fallback response
+            state["escalated"] = True
+            state["final_response"] = "This ticket requires human support attention."
+            return state
+
+
+
+
+
     @staticmethod
-    def _should_continue_review(state: LanggraphState) -> str:
-        """Determine if the review cycle should continue."""
+    def _determine_next_step(state: LanggraphState) -> str:
+        """Determine the next step based on review results and attempts."""
         
         review_attempts = state.get("review_attempts", 0)
         is_approved = state.get("review_result", {}).get("approved", False)
         
-        if is_approved or review_attempts >= 2:
+        if is_approved:
             return "finalize"
+        elif review_attempts >= 2:
+            return "escalate"
         else:
             return "refine"
 
-
-
-
-
-    @staticmethod
-    def _increment_attempts(state: LanggraphState) -> LanggraphState:
-        """Increment the review attempts counter."""
-
-        state["review_attempts"] = state.get("review_attempts", 0) + 1
-        logging.info(f"Review attempt: {state['review_attempts']}")
-        
-        return state
 
 
 
@@ -335,3 +382,4 @@ class LanggraphService:
 
 
 langgraph_service = LanggraphService()
+graph = langgraph_service.graph

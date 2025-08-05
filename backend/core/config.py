@@ -11,9 +11,10 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_NAME: str = "text-embedding-3-large"
 
 
-    PINECONE_API_KEY: str
-    PINECONE_INDEX_NAME: str
     OPENAI_API_KEY: str
+    PINECONE_API_KEY: str
+    LANGSMITH_API_KEY: str
+    PINECONE_INDEX_NAME: str
 
 
     class Config:

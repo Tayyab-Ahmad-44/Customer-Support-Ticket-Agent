@@ -11,4 +11,5 @@ class LanggraphState(TypedDict):
     review_result: Dict[str, Any]
     review_attempts: int
     final_response: str
+    escalated: bool
     query_embedding: List[float]

@@ -1,0 +1,10 @@
+{
+  "dependencies": [
+    "./services",
+    "./schemas"
+  ],
+  "graphs": {
+    "ticket_processor": "./services/langgraph_service.py:graph"
+  },
+  "env": ".env"
+}
