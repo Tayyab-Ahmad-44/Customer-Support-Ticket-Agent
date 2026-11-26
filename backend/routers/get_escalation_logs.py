@@ -1,5 +1,4 @@
 
-import pandas as pd
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
@@ -11,6 +10,8 @@ router = APIRouter()
 
 @router.get("/escalation-logs")
 def get_escalation_logs():
+    import pandas as pd
+
     try:
         df = pd.read_csv("escalation.csv")
         logs = df.to_dict(orient="records")

@@ -5,10 +5,7 @@ import logging
 from fastapi import APIRouter, UploadFile, File, Form
 
 from core.config import settings
-from services.openai_service import openai_service
-from services.pinecone_service import pinecone_service
 from schemas.dataclasses.namespace import NamespaceEnum
-from utils.file_operations import process_file, split_and_create_embeddings
 
 
 
@@ -22,6 +19,10 @@ async def upload_pdf(
     namespace: NamespaceEnum = Form(...)
 ):
     """Upload a PDF file and process it into chunks stored in Pinecone"""
+
+    from services.openai_service import openai_service
+    from services.pinecone_service import pinecone_service
+    from utils.file_operations import process_file, split_and_create_embeddings
 
     
     try:

@@ -3,6 +3,7 @@ from fastapi import FastAPI
 
 from core.cors import setup_cors
 from core.logging import configure_logging
+from routers.health import router as health_router
 from routers.home import router as home_router
 from routers.query import router as query_router
 from routers.store_pdf_in_db import router as store_pdf_router
@@ -24,6 +25,7 @@ setup_cors(application)
 
 
 application.include_router(home_router)
+application.include_router(health_router)
 application.include_router(query_router)
 application.include_router(store_pdf_router)
 application.include_router(get_escalation_logs_router)
